@@ -1,38 +1,52 @@
+import copy
 import re
 import struct
 
 
 def _parse_format(fmt):
-    types = re.findall(r'[a-zA-Z]+', fmt)
+    types = re.findall(r'[<>]?[a-zA-Z]+', fmt)
     sizes = map(lambda size: int(size),
                 re.findall(r'\d+', fmt))
     return zip(types, sizes)
 
 
-def _pack_integer(size, arg):
+def _pack_integer(size, arg, target='>'):
     if arg < 0:
         arg = ((1 << size) + arg)
-    return '{{:0{}b}}'.format(size).format(arg)
+    bits = '{{:0{}b}}'.format(size).format(arg)
+    if target == '<':
+        bits = translate_endianness(bits, target='<')
+    return bits
 
 
-def _pack_float(size, arg):
+def _pack_float(size, arg, target='>'):
     if size == 32:
         value = struct.pack('>f', arg)
     elif size == 64:
         value = struct.pack('>d', arg)
     else:
         raise ValueError('Bad float size {}. Must be 32 or 64.'.format(size))
-    return ''.join('{:08b}'.format(b)
-                   for b in bytearray(value))
 
+    return _pack_bytearray(size, bytearray(value), target=target)
 
-def _pack_bytearray(size, arg):
+def _pack_bytearray(size, arg, target='>'):
     bits = ''.join('{:08b}'.format(b)
                    for b in arg)
-    return bits[0:size]
+    bits = bits[0:size]
+
+    if target == '<':
+        bits = translate_endianness(bits, target)
+    elif target == '>':
+        pass
+    else:
+        raise ValueError("Endianness type '{}' not supported.".format(target))
+
+    return bits
 
 
-def _unpack_integer(type, bits):
+def _unpack_integer(type, bits, endianness='>'):
+    if endianness == '<':
+        bits = translate_endianness(bits, target='>')
     value = int(bits, 2)
     if type == 's':
         if bits[0] == '1':
@@ -40,8 +54,8 @@ def _unpack_integer(type, bits):
     return value
 
 
-def _unpack_float(size, bits):
-    packed = _unpack_bytearray(size, bits)
+def _unpack_float(size, bits, endianness='>'):
+    packed = _unpack_bytearray(size, bits, endianness=endianness)
     if size == 32:
         value = struct.unpack('>f', packed)[0]
     elif size == 64:
@@ -50,14 +64,47 @@ def _unpack_float(size, bits):
         raise ValueError('Bad float size {}. Must be 32 or 64.'.format(size))
     return value
 
-def _unpack_bytearray(size, bits):
+def _unpack_bytearray(size, bits, target='>', endianness='>'):
     value = bytearray()
+
+    if endianness == '<':
+        bits = translate_endianness(bits, target='<')
+    elif endianness == '>':
+        pass
+    else:
+        raise ValueError("Endianness type '{}' not supported.".format(target))
+
     for i in range(size // 8):
         value.append(int(bits[8*i:8*i+8], 2))
     rest = size % 8
     if rest > 0:
         value.append(int(bits[size-rest:], 2) << (8-rest))
     return value
+
+
+def translate_endianness(bitstring, target, byte_width=8):
+    bits = copy.copy(bitstring)
+    bytes = []
+    chunk_sizes = [byte_width] * int(len(bits) / byte_width)
+
+    partial_len = len(bits) % byte_width
+    if partial_len > 0:
+        chunk_sizes.insert(0, partial_len)
+
+    if target == '<':
+        for size in chunk_sizes:
+            chunk = bits[:size]
+            bits = bits[size:]
+            bytes.insert(0, chunk)
+    elif target == '>':
+        for size in chunk_sizes:
+            chunk = bits[-size:]
+            bits = bits[:-size]
+            bytes.append(chunk)
+    else:
+        raise ValueError("Endianness type '{}' not supported.".format(target))
+
+    return ''.join(bytes)
 
 
 def pack(fmt, *args):
@@ -87,15 +134,20 @@ def pack(fmt, *args):
     infos = _parse_format(fmt)
     i = 0
     for type, size in infos:
+        if type[0] in '<>':
+            endianness = type[0]
+            type = type[1:]
+        else:
+            endianness = '>'
         if type == 'p':
             bits += size * '0'
         else:
             if type in 'us':
-                bits += _pack_integer(size, args[i])
+                bits += _pack_integer(size, args[i], target=endianness)
             elif type == 'f':
-                bits += _pack_float(size, args[i])
+                bits += _pack_float(size, args[i], target=endianness)
             elif type == 'b':
-                bits += _pack_bytearray(size, args[i])
+                bits += _pack_bytearray(size, args[i], target=endianness)
             else:
                 raise ValueError("bad type '{}' in format".format(type))
             i += 1
@@ -124,15 +176,20 @@ def unpack(fmt, data):
     res = []
     i = 0
     for type, size in infos:
+        if type[0] in '<>':
+            endianness = type[0]
+            type = type[1:]
+        else:
+            endianness = '>'
         if type == 'p':
             pass
         else:
             if type in 'us':
-                value = _unpack_integer(type, bits[i:i+size])
+                value = _unpack_integer(type, bits[i:i+size], endianness=endianness)
             elif type == 'f':
-                value = _unpack_float(size, bits[i:i+size])
+                value = _unpack_float(size, bits[i:i+size], endianness=endianness)
             elif type == 'b':
-                value = _unpack_bytearray(size, bits[i:i+size])
+                value = _unpack_bytearray(size, bits[i:i+size], endianness=endianness)
             res.append(value)
         i += size
     return tuple(res)

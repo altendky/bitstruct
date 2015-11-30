@@ -1,6 +1,9 @@
 import unittest
+# for testing private members
+import bitstruct
 from bitstruct import *
-
+import copy
+import math
 
 class BitStructTest(unittest.TestCase):
 
@@ -95,6 +98,80 @@ class BitStructTest(unittest.TestCase):
         packed = pack('u1u5u2u16', 1, 2, 3, 4)
         unpacked = unpack('u1u5u2u16', byteswap('12', packed))
         self.assertEqual(unpacked, (1, 2, 3, 1024))
+
+    def iterable_almost_equal(self, first, second, places=6):
+        self.assertEqual(len(first), len(second))
+
+        for f, s in zip(first, second):
+            if isinstance(f, float) and isinstance(s, float):
+                self.assertAlmostEqual(f, s, places)
+            else:
+                self.assertEqual(f, s)
+
+    def test_endianness_format(self):
+        '''
+        Endianness format
+        '''
+        value = -3
+        byte_width = 8
+        width = 10
+        big = '1111111101'
+        little = '1111110111'
+        self.assertEqual(len(big), width)
+        self.assertEqual(len(little), width)
+
+        value = -3
+        byte_width = 8
+        width = 10
+        big = '1111111101'
+        little = '1111110111'
+        self.assertEqual(len(big),
+                         width)
+        self.assertEqual(len(little),
+                         width)
+        self.assertEqual(bitstruct.translate_endianness(little, target='>',
+                                                        byte_width=byte_width),
+                         big)
+        self.assertEqual(bitstruct.translate_endianness(big, target='<',
+                                                        byte_width=byte_width),
+                         little)
+        self.assertEqual(bitstruct._unpack_integer('s', big),
+                         value)
+        self.assertEqual(bitstruct._unpack_integer('s', big, endianness='>'),
+                         bitstruct._unpack_integer('s', little, endianness='<'))
+        self.assertEqual(bitstruct.translate_endianness(big, target='<',
+                                                        byte_width=byte_width),
+                         little)
+        self.assertEqual(bitstruct._pack_integer(width, value),
+                         big)
+        self.assertEqual(bitstruct._pack_integer(width, value, target='<'),
+                         little)
+
+        data = (0, 0, -2, 65, 22, math.pi)
+        format = 'u1u1<s14<u17>u9<f32'
+        packed_a = pack(format, *data)
+        unpacked = unpack(format, packed_a)
+        self.iterable_almost_equal(unpacked, data)
+
+        # Here is a set of formats which should generate unique results.
+        # This is used to verify that the endianness is being applied.
+        formats = [
+            'u1u1<s14<u17>u9>f32',
+            'u1u1<s14>u17>u9>f32',
+            'u1u1>s14>u17>u9>f32',
+            'u1u1>s14>u17>u9<f32',
+        ]
+
+        packed = []
+        for f in formats:
+            packed.append(pack(f, *data))
+
+        # Verify that the results are all truly unique
+        for i, p in enumerate(packed):
+            packed_copy = copy.copy(packed)
+            del packed_copy[i]
+            self.assertNotIn(p, packed_copy)
+
 
 if __name__ == '__main__':
     unittest.main()
