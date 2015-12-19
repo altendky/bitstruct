@@ -1,4 +1,6 @@
 import unittest
+# for testing private members
+import bitstruct
 from bitstruct import *
 
 
@@ -133,45 +135,77 @@ class BitStructTest(unittest.TestCase):
         unpacked = unpack('u1u5u2u16', byteswap('12', packed))
         self.assertEqual(unpacked, (1, 2, 3, 1024))
 
+    def iterable_almost_equal(self, first, second, places=6):
+        self.assertEqual(len(first), len(second))
+
+        for f, s in zip(first, second):
+            if isinstance(f, float) and isinstance(s, float):
+                self.assertAlmostEqual(f, s, places)
+            else:
+                self.assertEqual(f, s)
+
     def test_endianness(self):
         """Test pack/unpack with endianness information in the format string.
 
         """
 
-        # big endian
-        ref = b"\x02\x46\x9a\xfe\x00\x00\x00"
-        packed = pack(">u19s3f32", 0x1234, -2, -1.0)
-        self.assertEqual(packed, ref)
-        unpacked = unpack(">u19s3f32", packed)
-        self.assertEqual(unpacked, (0x1234, -2, -1.0))
-        
-        # little endian
-        ref = b"\x2c\x48\x0c\x00\x00\x07\xf4"
-        packed = pack("<u19s3f32", 0x1234, -2, -1.0)
-        self.assertEqual(packed, ref)
-        unpacked = unpack("<u19s3f32", packed)
-        self.assertEqual(unpacked, (0x1234, -2, -1.0))
+        width = 10
+        big = '1111111101'
+        little = '1111110111'
+        self.assertEqual(len(big), width)
+        self.assertEqual(len(little), width)
 
-        # mixed endianness
-        ref = b"\x00\x00\x2f\x3f\xf0\x00\x00\x00\x00\x00\x00\x80"
-        packed = pack(">u19<s5>f64r3p4", 1, -2, 1.0, bytearray(b"\x80"))
-        self.assertEqual(packed, ref)
-        unpacked = unpack(">u19<s5>f64r3p4", packed)
-        self.assertEqual(unpacked, (1, -2, 1.0, bytearray(b"\x80")))
+        value = -3
+        byte_width = 8
+        width = 10
+        big = '1111111101'
+        little = '1111110111'
+        self.assertEqual(len(big),
+                         width)
+        self.assertEqual(len(little),
+                         width)
+        self.assertEqual(translate_endianness(little, target='>',
+                                              byte_width=byte_width),
+                         big)
+        self.assertEqual(translate_endianness(big, target='<',
+                                              byte_width=byte_width),
+                         little)
+        self.assertEqual(bitstruct._unpack_integer('s', big),
+                         value)
+        self.assertEqual(bitstruct._unpack_integer('s', big, endianness='>'),
+                         bitstruct._unpack_integer('s', little, endianness='<'))
+        self.assertEqual(translate_endianness(big, target='<',
+                                              byte_width=byte_width),
+                         little)
+        self.assertEqual(bitstruct._pack_integer(width, value),
+                         big)
+        self.assertEqual(bitstruct._pack_integer(width, value, target='<'),
+                         little)
 
-        # opposite endianness of the "mixed endianness" test
-        ref = b"\x80\x00\x1e\x00\x00\x00\x00\x00\x00\x0f\xfc\x20"
-        packed = pack("<u19>s5<f64r3p4", 1, -2, 1.0, bytearray(b"\x80"))
-        self.assertEqual(packed, ref)
-        unpacked = unpack("<u19>s5<f64r3p4", packed)
-        self.assertEqual(unpacked, (1, -2, 1.0, bytearray(b"\x80")))
+        data = (0, 0, -2, 65, 22, 3.14159)
+        format = 'u1u1<s14<u17>u9<f32'
+        packed_a = pack(format, *data)
+        unpacked = unpack(format, packed_a)
+        self.iterable_almost_equal(unpacked, data)
 
-        # pack as big endian, unpack as little endian
-        ref = b"\x40"
-        packed = pack("u2", 1)
-        self.assertEqual(packed, ref)
-        unpacked = unpack("<u2", packed)
-        self.assertEqual(unpacked, (2, ))
+        # Here is a set of formats which should generate unique results.
+        # This is used to verify that the endianness is being applied.
+        formats = [
+            'u1u1<s14<u17>u9>f32',
+            'u1u1<s14>u17>u9>f32',
+            'u1u1>s14>u17>u9>f32',
+            'u1u1>s14>u17>u9<f32',
+        ]
+
+        packed = []
+        for f in formats:
+            packed.append(pack(f, *data))
+
+        # Verify that the results are all truly unique
+        for i, p in enumerate(packed):
+            packed_copy = copy.copy(packed)
+            del packed_copy[i]
+            self.assertNotIn(p, packed_copy)
 
 if __name__ == '__main__':
     unittest.main()

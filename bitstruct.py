@@ -1,3 +1,4 @@
+import copy
 import re
 import struct
 
@@ -17,35 +18,43 @@ def _parse_format(fmt):
     return infos
 
 
-def _pack_integer(size, arg):
+def _pack_integer(size, arg, target='>'):
     if arg < 0:
         arg = ((1 << size) + arg)
-
-    return '{{:0{}b}}'.format(size).format(arg)
+    bits = '{{:0{}b}}'.format(size).format(arg)
+    if target == '<':
+        bits = translate_endianness(bits, target='<')
+    return bits
 
 def _pack_boolean(size, arg):
     return _pack_integer(size, int(arg))
 
 
-def _pack_float(size, arg):
+def _pack_float(size, arg, target='>'):
     if size == 32:
         value = struct.pack('>f', arg)
     elif size == 64:
         value = struct.pack('>d', arg)
     else:
         raise ValueError('Bad float size {}. Must be 32 or 64 bits.'.format(size))
-    return ''.join('{:08b}'.format(b)
-                   for b in bytearray(value))
+    return _pack_bytearray(size, bytearray(value), target=target)
 
 
-def _pack_bytearray(size, arg):
+def _pack_bytearray(size, arg, target='>'):
     bits = ''.join('{:08b}'.format(b)
                    for b in arg)
+    bits = bits[0:size]
 
-    return bits[0:size]
+    if target == '<':
+        bits = translate_endianness(bits, target)
+
+    return bits
 
 
-def _unpack_integer(_type, bits):
+def _unpack_integer(_type, bits, endianness='>'):
+    if endianness == '<':
+        bits = translate_endianness(bits, target='>')
+
     value = int(bits, 2)
 
     if _type == 's':
@@ -61,8 +70,8 @@ def _unpack_boolean(bits):
     return bool(value)
 
 
-def _unpack_float(size, bits):
-    packed = _unpack_bytearray(size, bits)
+def _unpack_float(size, bits, endianness='>'):
+    packed = _unpack_bytearray(size, bits, endianness=endianness)
 
     if size == 32:
         value = struct.unpack('>f', packed)[0]
@@ -73,14 +82,43 @@ def _unpack_float(size, bits):
 
     return value
 
-def _unpack_bytearray(size, bits):
+def _unpack_bytearray(size, bits, endianness='>'):
     value = bytearray()
+
+    if endianness == '<':
+        bits = translate_endianness(bits, target='<')
+
     for i in range(size // 8):
         value.append(int(bits[8*i:8*i+8], 2))
     rest = size % 8
     if rest > 0:
         value.append(int(bits[size-rest:], 2) << (8-rest))
     return value
+
+
+def translate_endianness(bitstring, target, byte_width=8):
+    bits = copy.copy(bitstring)
+    bytes = []
+    chunk_sizes = [byte_width] * int(len(bits) / byte_width)
+
+    partial_len = len(bits) % byte_width
+    if partial_len > 0:
+        chunk_sizes.insert(0, partial_len)
+
+    if target == '<':
+        for size in chunk_sizes:
+            chunk = bits[:size]
+            bits = bits[size:]
+            bytes.insert(0, chunk)
+    elif target == '>':
+        for size in chunk_sizes:
+            chunk = bits[-size:]
+            bits = bits[:-size]
+            bytes.append(chunk)
+    else:
+        raise ValueError("Endianness type '{}' not supported.".format(target))
+
+    return ''.join(bytes)
 
 
 def pack(fmt, *args):
@@ -93,12 +131,12 @@ def pack(fmt, *args):
     :param args: Variable argument list of values to pack.
     :returns: A bytearray of the packed values.
 
-    `fmt` is a string of bitorder-type-length groups. Bitorder may be
+    `fmt` is a string of byteorder-type-length groups. Byteorder may be
     omitted.
 
-    Bitorder is either ">" or "<", where ">" means MSB first and "<"
-    means LSB first. If bitorder is omitted, the previous values'
-    bitorder is used for the current value. For example, in the format
+    Byteorder is either ">" or "<", where ">" means MSB first and "<"
+    means LSB first. If byteorder is omitted, the previous values'
+    byteorder is used for the current value. For example, in the format
     string "u1<u2u3" u1 is MSB first and both u2 and u3 are LSB first.
 
     There are six types; 'u', 's', 'f', 'b', 'r' and 'p'.
@@ -125,19 +163,15 @@ def pack(fmt, *args):
             bits += size * '0'
         else:
             if _type in 'us':
-                value_bits = _pack_integer(size, args[i])
+                value_bits = _pack_integer(size, args[i], target=endianness)
             elif _type == 'f':
-                value_bits = _pack_float(size, args[i])
+                value_bits = _pack_float(size, args[i], target=endianness)
             elif _type == 'b':
                 value_bits = _pack_boolean(size, args[i])
             elif _type == 'r':
-                value_bits = _pack_bytearray(size, args[i])
+                value_bits = _pack_bytearray(size, args[i], target=endianness)
             else:
                 raise ValueError("bad type '{}' in format".format(_type))
-
-            # reverse the bit order in little endian values
-            if endianness == "<":
-                value_bits = value_bits[::-1]
 
             bits += value_bits
             i += 1
@@ -173,18 +207,14 @@ def unpack(fmt, data):
         else:
             value_bits = bits[i:i+size]
 
-            # reverse the bit order in little endian values
-            if endianness == "<":
-                value_bits = value_bits[::-1]
-
             if _type in 'us':
-                value = _unpack_integer(_type, value_bits)
+                value = _unpack_integer(_type, value_bits, endianness=endianness)
             elif _type == 'f':
-                value = _unpack_float(size, value_bits)
+                value = _unpack_float(size, value_bits, endianness=endianness)
             elif _type == 'b':
                 value = _unpack_boolean(value_bits)
             elif _type == 'r':
-                value = _unpack_bytearray(size, value_bits)
+                value = _unpack_bytearray(size, value_bits, endianness=endianness)
             else:
                 raise ValueError("bad type '{}' in format".format(_type))
             res.append(value)
