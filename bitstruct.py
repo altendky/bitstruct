@@ -197,7 +197,10 @@ def unpack(fmt, data):
     """
 
     bits = ''.join(['{:08b}'.format(b) for b in data])
-    infos = _parse_format(fmt)
+    if not isinstance(fmt, list):
+        infos = _parse_format(fmt)
+    else:
+        infos = fmt
     res = []
     i = 0
 
