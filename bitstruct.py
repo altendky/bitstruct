@@ -4,7 +4,7 @@ import struct
 
 
 def _parse_format(fmt):
-    if isinstance(fmt, zip):
+    if isinstance(fmt, list):
         return fmt
 
     parsed_infos = re.findall(r'([<>]?)([a-zA-Z])(\d+)', fmt)
