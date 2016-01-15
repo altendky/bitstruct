@@ -4,6 +4,9 @@ import struct
 
 
 def _parse_format(fmt):
+    if isinstance(fmt, zip):
+        return fmt
+
     parsed_infos = re.findall(r'([<>]?)([a-zA-Z])(\d+)', fmt)
 
     # Use big endian as default and use the endianness of the previous
@@ -197,10 +200,7 @@ def unpack(fmt, data):
     """
 
     bits = ''.join(['{:08b}'.format(b) for b in data])
-    if not isinstance(fmt, list):
-        infos = _parse_format(fmt)
-    else:
-        infos = fmt
+    infos = _parse_format(fmt)
     res = []
     i = 0
 
