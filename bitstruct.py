@@ -35,9 +35,9 @@ def _pack_boolean(size, arg):
 
 def _pack_float(size, arg, target='>'):
     if size == 32:
-        value = struct.pack('>f', arg)
+        value = struct.pack(target + 'f', arg)
     elif size == 64:
-        value = struct.pack('>d', arg)
+        value = struct.pack(target + 'd', arg)
     else:
         raise ValueError('Bad float size {}. Must be 32 or 64 bits.'.format(size))
     return _pack_bytearray(size, bytearray(value), target=target)
@@ -77,9 +77,9 @@ def _unpack_float(size, bits, endianness='>'):
     packed = _unpack_bytearray(size, bits, endianness=endianness)
 
     if size == 32:
-        value = struct.unpack('>f', packed)[0]
+        value = struct.unpack(endianness + 'f', packed)[0]
     elif size == 64:
-        value = struct.unpack('>d', packed)[0]
+        value = struct.unpack(endianness + 'd', packed)[0]
     else:
         raise ValueError('Bad float size {}. Must be 32 or 64 bits.'.format(size))
 
