@@ -100,28 +100,30 @@ def _unpack_bytearray(size, bits, endianness='>'):
 
 
 def translate_endianness(bitstring, target, byte_width=8):
-    bits = copy.copy(bitstring)
-    bytes = []
-    chunk_sizes = [byte_width] * int(len(bits) / byte_width)
+    bytes = ()
+    length = len(bitstring)
 
-    partial_len = len(bits) % byte_width
-    if partial_len > 0:
-        chunk_sizes.insert(0, partial_len)
-
+    total = length
     if target == '<':
-        for size in chunk_sizes:
-            chunk = bits[:size]
-            bits = bits[size:]
-            bytes.insert(0, chunk)
+        while True:
+            new = max(total - byte_width, 0)
+            bytes += (bitstring[new:total],)
+            if new == 0:
+                break
+            total = new
+        return ''.join(bytes)
     elif target == '>':
-        for size in chunk_sizes:
-            chunk = bits[-size:]
-            bits = bits[:-size]
-            bytes.append(chunk)
-    else:
-        raise ValueError("Endianness type '{}' not supported.".format(target))
+        size = length % byte_width
+        while True:
+            new = total - size
+            bytes += (bitstring[new:total],)
+            if new == 0:
+                break
+            total = new
+            size = byte_width
+        return ''.join(bytes)
 
-    return ''.join(bytes)
+    raise ValueError("Endianness type '{}' not supported.".format(target))
 
 
 def pack(fmt, *args):
